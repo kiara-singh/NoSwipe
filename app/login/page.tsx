@@ -24,14 +24,21 @@ export default function LoginPage() {
     const supabase = createClient();
 
     if (mode === "signup") {
-      const { error: signUpError } = await supabase.auth.signUp({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
-        options: { emailRedirectTo: `${window.location.origin}/profile` },
+        options: {
+          emailRedirectTo: `${window.location.origin}/onboarding`,
+        },
       });
       setLoading(false);
       if (signUpError) {
         setError(signUpError.message);
+        return;
+      }
+      if (data.session) {
+        router.replace("/onboarding");
+        router.refresh();
         return;
       }
       setMessage("Check your email to confirm your account, then sign in.");
@@ -47,7 +54,7 @@ export default function LoginPage() {
       setError(signInError.message);
       return;
     }
-    router.push("/profile");
+    router.replace("/onboarding");
     router.refresh();
   }
 
