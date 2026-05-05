@@ -27,7 +27,10 @@ export function UpcomingDatesClient({ userId }: UpcomingDatesClientProps) {
     try {
       const parsed = JSON.parse(raw) as UpcomingDate[];
       if (Array.isArray(parsed)) {
-        setItems(parsed);
+        const timeoutId = window.setTimeout(() => {
+          setItems(parsed);
+        }, 0);
+        return () => window.clearTimeout(timeoutId);
       }
     } catch {
       // Ignore malformed demo data.

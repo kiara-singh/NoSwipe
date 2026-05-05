@@ -5,6 +5,7 @@ import { createClient } from "@/utils/supabase/server";
 import { SignOutButton } from "./sign-out-button";
 import { ProfileEditForm } from "./profile-edit-form";
 import { UpcomingDatesClient } from "./upcoming-dates-client";
+import { FriendsClient } from "./friends-client";
 import { formatContactLine } from "@/lib/contact-platforms";
 
 export default async function ProfilePage() {
@@ -100,6 +101,8 @@ export default async function ProfilePage() {
             </div>
             <UpcomingDatesClient userId={user.id} />
           </div>
+
+          <FriendsClient userId={user.id} />
         </div>
       </main>
     </div>

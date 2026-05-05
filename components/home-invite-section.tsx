@@ -1,17 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Moon } from "lucide-react";
 import { InviteLetter } from "@/components/invite-letter";
-import { dailyPassesStorageKey } from "@/lib/noswipe-demo-storage";
+import {
+  dailyPassesStorageKey,
+  wingedInviteDismissedStorageKey,
+} from "@/lib/noswipe-demo-storage";
 
 export type HomeInviteMatch = {
+  matchedUserId: string;
   dateIdea: string;
   matchReasoning: string;
   matchName: string;
   matchContact: string;
   matchContactPlatform: string;
   matchPhotoUrl: string;
+  isWingedMatch?: boolean;
+  pitchMessage?: string;
+  senderHandle?: string;
 };
 
 /** Tracks Pass taps per user + day (2 mock invites). */
@@ -49,29 +56,50 @@ type HomeInviteSectionProps = {
   /** Supabase auth user id — pass count is scoped so each account has its own daily queue. */
   userId: string;
   matches: [HomeInviteMatch, HomeInviteMatch];
+  wingedMatch?: HomeInviteMatch | null;
+  wingedMatchToken?: string | null;
   userContactSummary: string;
+  senderHandle: string;
   welcomeName?: string | null;
 };
 
 export function HomeInviteSection({
   userId,
   matches,
+  wingedMatch,
+  wingedMatchToken,
   userContactSummary,
+  senderHandle,
   welcomeName,
 }: HomeInviteSectionProps) {
-  const [passCount, setPassCount] = useState(0);
-  const [hydrated, setHydrated] = useState(false);
+  const [wingedDismissed, setWingedDismissed] = useState(false);
 
   useEffect(() => {
-    setPassCount(readPassCount(userId));
-    setHydrated(true);
-  }, [userId]);
+    if (typeof window === "undefined") return;
+    if (!userId) return;
+    if (!wingedMatchToken) {
+      setWingedDismissed(false);
+      return;
+    }
+    const dismissedToken = window.localStorage.getItem(
+      wingedInviteDismissedStorageKey(userId),
+    );
+    setWingedDismissed(dismissedToken === wingedMatchToken);
+  }, [userId, wingedMatchToken]);
 
-  const exhausted = passCount >= 2;
-  const activeIndex = passCount >= 1 ? 1 : 0;
-  const activeMatch = matches[activeIndex] ?? matches[0];
+  const showingWinged = Boolean(wingedMatch) && !wingedDismissed;
 
-  const onPass = useCallback(() => {
+  function onPass() {
+    if (showingWinged) {
+      if (typeof window !== "undefined" && userId && wingedMatchToken) {
+        window.localStorage.setItem(
+          wingedInviteDismissedStorageKey(userId),
+          wingedMatchToken,
+        );
+      }
+      setWingedDismissed(true);
+      return;
+    }
     setPassCount((prev) => {
       const fromStorage = readPassCount(userId);
       const base = Math.max(prev, fromStorage);
@@ -79,16 +107,33 @@ export function HomeInviteSection({
       writePassCount(userId, next);
       return next;
     });
+  }
+
+  const [passCount, setPassCount] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setPassCount(readPassCount(userId));
+      setHydrated(true);
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
   }, [userId]);
+
+  const exhausted = passCount >= 2;
+  const activeIndex = passCount >= 1 ? 1 : 0;
+  const activeMatch = (showingWinged ? wingedMatch : matches[activeIndex]) ?? matches[0];
 
   const remountKey = useMemo(
     () => `${activeIndex}-${passCount}-${activeMatch.dateIdea.slice(0, 24)}`,
     [activeIndex, passCount, activeMatch.dateIdea],
   );
 
-  const subtitle = exhausted
-    ? "You've seen both invites for today—they refresh tomorrow morning."
-    : "Your next curated date proposal is ready.";
+  const subtitle = showingWinged
+    ? "A wingman invite was sent to you and is ready to review first."
+    : exhausted
+      ? "You've seen both invites for today—they refresh tomorrow morning."
+      : "Your next curated date proposal is ready.";
 
   if (!hydrated) {
     return (
@@ -107,7 +152,7 @@ export function HomeInviteSection({
     );
   }
 
-  if (exhausted) {
+  if (exhausted && !showingWinged) {
     return (
       <div className="flex w-full flex-col items-center">
         <div className="mb-4 text-center md:mb-5">
@@ -158,12 +203,17 @@ export function HomeInviteSection({
     <InviteLetter
       key={remountKey}
       userId={userId}
+      senderHandle={senderHandle}
+      wingedByHandle={activeMatch.senderHandle}
+      matchedUserId={activeMatch.matchedUserId}
       dateIdea={activeMatch.dateIdea}
       matchReasoning={activeMatch.matchReasoning}
       matchName={activeMatch.matchName}
       matchContact={activeMatch.matchContact}
       matchContactPlatform={activeMatch.matchContactPlatform}
       matchPhotoUrl={activeMatch.matchPhotoUrl}
+      isWingedMatch={activeMatch.isWingedMatch}
+      pitchMessage={activeMatch.pitchMessage}
       userContactSummary={userContactSummary}
       onPass={onPass}
     />
