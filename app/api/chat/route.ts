@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import Groq from 'groq-sdk';
+import type { ChatCompletionMessageParam } from 'groq-sdk/resources/chat/completions';
 import { NextResponse } from 'next/server';
 
-// Initialize the SDK. This runs strictly on the server.
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 const ONBOARDING_CLOSING_MESSAGE =
   "You're all set! Add a profile photo to finish.";
@@ -18,6 +18,14 @@ The app handles a separate photo step after those three—never ask for photos.
 Do not ask for boring stats like height or job. Ask clever, revealing questions.
 Ask only ONE question at a time. Keep your tone modern, slightly witty, and highly empathetic.
 `;
+
+/** Groq: llama3-8b-8192 retired; see https://console.groq.com/docs/deprecations */
+const CHAT_MODEL = 'llama-3.1-8b-instant';
+
+function toGroqRole(role: string): 'assistant' | 'user' {
+  return role === 'model' ? 'assistant' : 'user';
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -53,34 +61,40 @@ export async function POST(req: Request) {
       );
     }
 
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction: SYSTEM_INSTRUCTION,
-    });
+    const rawMsgs = messages as { role: string; content: string }[];
 
-    // Format the conversation history for the AI
-    let formattedHistory = (messages as { role: string; content: string }[]).map(
-      (msg) => ({
-        role: msg.role === 'user' ? 'user' : 'model',
-        parts: [{ text: msg.content }],
-      }),
-    );
+    let history = rawMsgs
+      .slice(0, -1)
+      .map((msg) => ({
+        role: toGroqRole(msg.role),
+        content: msg.content,
+      }));
 
-    // Remove the very last message (because that is the one we are submitting right now)
-    formattedHistory = formattedHistory.slice(0, -1);
-
-    // Gemini SDK requires history to start with a 'user' turn (see validateChatHistory).
-    if (formattedHistory.length > 0 && formattedHistory[0].role === 'model') {
-      formattedHistory.shift();
+    if (history.length > 0 && history[0].role === 'assistant') {
+      history = history.slice(1);
     }
 
-    const chat = model.startChat({ history: formattedHistory });
-    const latestMessage = (messages as { content: string }[])[
-      messages.length - 1
-    ].content;
+    const latest = rawMsgs[rawMsgs.length - 1];
+    const groqMessages: ChatCompletionMessageParam[] = [
+      { role: 'system', content: SYSTEM_INSTRUCTION.trim() },
+      ...history,
+      { role: 'user', content: latest.content },
+    ];
 
-    const result = await chat.sendMessage(latestMessage);
-    const responseText = result.response.text();
+    const completion = await groq.chat.completions.create({
+      model: CHAT_MODEL,
+      messages: groqMessages,
+    });
+
+    const responseText =
+      completion.choices[0]?.message?.content?.trim() ?? '';
+
+    if (!responseText) {
+      return NextResponse.json(
+        { error: 'Empty model response.' },
+        { status: 502 },
+      );
+    }
 
     return NextResponse.json({ message: responseText });
   } catch (error) {

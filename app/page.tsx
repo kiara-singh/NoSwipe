@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { ArrowRight } from "lucide-react";
 import {
   HomeInviteSection,
@@ -8,12 +8,15 @@ import {
 import { formatContactLine } from "@/lib/contact-platforms";
 import { createClient } from "@/utils/supabase/server";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+/** Groq: llama3-70b-8192 retired; use llama-3.3-70b-versatile for JSON + quality */
+const INVITE_JSON_MODEL = "llama-3.3-70b-versatile";
 
 const FALLBACK_MATCH: { date_idea: string; match_reasoning: string } = {
   date_idea: "Sunday Coffee & Book Swap at Blue Bottle",
   match_reasoning:
-    "You both value thoughtful, low-pressure connection and discover people best through shared rituals. A coffee + book swap creates an easy starting point with enough depth for real chemistry to surface quickly.",
+    "You and your match both value thoughtful, low-pressure connection and discover people best through shared rituals. A coffee + book swap gives you an easy starting point with enough depth for real chemistry to surface quickly.",
 };
 
 export default async function Home() {
@@ -69,27 +72,35 @@ export default async function Home() {
     }): Promise<HomeInviteMatch> {
       let matchData = FALLBACK_MATCH;
       try {
-        const model = genAI.getGenerativeModel({
-          model: "gemini-2.5-flash",
-          generationConfig: {
-            responseMimeType: "application/json",
+        const systemInstruction = `You are an elite matchmaker for NoSwipe. Return ONLY JSON with keys: date_idea and match_reasoning.
+Writing rules: The invite is shown only to the member whose intent is labeled "yours". Always address them as "you". Refer to the suggested match by first name only (${mock.name}). Never write "User A/User B", never use both people's full names in third person (e.g. avoid "Alex and Jordan both…"). Use "you and ${mock.name}…" or "you both…" where "both" means you and ${mock.name}. Keep match_reasoning in that voice.
+date_idea must be a short label only: maximum 12 words, target ~6–10 words—like a calendar event title (activity + place or vibe). No explaining why, no "allowing you to…", no comma-run-on sentences; put all rationale in match_reasoning.`;
+        const userPrompt = `Create one specific, low-friction date idea based on overlap between these two people.
+
+Your intent (you are the member opening this invite):
+${JSON.stringify(
+          userIntent ?? {
+            vibe: "intent not available",
+            intent: "intent not available",
           },
-          systemInstruction:
-            "You are an elite matchmaker for NoSwipe. Return ONLY JSON with keys: date_idea and match_reasoning.",
+        )}
+
+${mock.name}'s intent (your suggested match):
+${JSON.stringify(mock.intent)}
+
+Return strict JSON: {"date_idea": string, "match_reasoning": string}
+date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentences max, same "you" voice.`;
+
+        const completion = await groq.chat.completions.create({
+          model: INVITE_JSON_MODEL,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
         });
 
-        const result = await model.generateContent(
-          `Create one specific, low-friction date idea based on overlap.\n\nUser A intent:\n${JSON.stringify(
-            userIntent ?? {
-              vibe: "intent not available",
-              intent: "intent not available",
-            },
-          )}\n\nUser B intent:\n${JSON.stringify(
-            mock.intent,
-          )}\n\nReturn strict JSON: {"date_idea": string, "match_reasoning": string}`,
-        );
-
-        const raw = result.response.text();
+        const raw = completion.choices[0]?.message?.content ?? "";
         const parsed = JSON.parse(raw) as {
           date_idea?: unknown;
           match_reasoning?: unknown;
@@ -133,8 +144,9 @@ export default async function Home() {
     return (
       <div className="min-h-full flex-1 bg-zinc-950 text-zinc-100">
         <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_90%_60%_at_50%_-10%,rgba(250,250,249,0.06),transparent)]" />
-        <main className="relative z-10 mx-auto flex max-w-5xl flex-1 flex-col items-center px-4 py-12 md:px-8 md:py-20">
+        <main className="relative z-10 mx-auto flex max-w-5xl flex-1 flex-col items-center px-4 py-6 md:px-8 md:py-10">
           <HomeInviteSection
+            userId={user.id}
             matches={[inviteA, inviteB]}
             userContactSummary={userContactSummary}
             welcomeName={profile?.full_name ?? null}

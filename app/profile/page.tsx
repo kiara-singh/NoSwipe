@@ -33,11 +33,11 @@ export default async function ProfilePage() {
     <div className="relative flex min-h-full flex-1 flex-col bg-[#000208] text-slate-100">
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_90%_50%_at_50%_-18%,rgba(56,189,248,0.025),transparent)]"
+        className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_90%_50%_at_50%_-18%,rgba(30,58,138,0.07),transparent)]"
       />
       <div
         aria-hidden
-        className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_48%_38%_at_100%_100%,rgba(37,99,235,0.045),transparent)]"
+        className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_48%_38%_at_100%_100%,rgba(23,37,84,0.09),transparent)]"
       />
 
       <main className="relative z-10 mx-auto w-full max-w-3xl flex-1 px-4 py-12 md:px-6 md:py-16">
@@ -95,10 +95,10 @@ export default async function ProfilePage() {
 
           <div className="rounded-xl border border-white/[0.04] bg-[#010407]/95 p-5">
             <div className="flex items-center gap-2 text-slate-500">
-              <Calendar className="h-4 w-4 text-sky-600/55" aria-hidden />
+              <Calendar className="h-4 w-4 text-blue-800/75" aria-hidden />
               <h2 className="text-sm font-semibold tracking-tight">Upcoming dates</h2>
             </div>
-            <UpcomingDatesClient />
+            <UpcomingDatesClient userId={user.id} />
           </div>
         </div>
       </main>

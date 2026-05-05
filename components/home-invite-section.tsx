@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Moon } from "lucide-react";
 import { InviteLetter } from "@/components/invite-letter";
+import { dailyPassesStorageKey } from "@/lib/noswipe-demo-storage";
 
 export type HomeInviteMatch = {
   dateIdea: string;
@@ -13,8 +14,7 @@ export type HomeInviteMatch = {
   matchPhotoUrl: string;
 };
 
-/** Tracks Pass taps today; 2 mock invites per calendar day, then queue is done. */
-const STORAGE_KEY = "noswipe_daily_passes";
+/** Tracks Pass taps per user + day (2 mock invites). */
 
 function todayKey() {
   const d = new Date();
@@ -24,10 +24,10 @@ function todayKey() {
   return `${y}-${m}-${day}`;
 }
 
-function readPassCount(): number {
-  if (typeof window === "undefined") return 0;
+function readPassCount(userId: string): number {
+  if (typeof window === "undefined" || !userId) return 0;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(dailyPassesStorageKey(userId));
     if (!raw) return 0;
     const parsed = JSON.parse(raw) as { day?: string; count?: number };
     if (parsed.day !== todayKey()) return 0;
@@ -37,20 +37,24 @@ function readPassCount(): number {
   }
 }
 
-function writePassCount(count: number) {
+function writePassCount(userId: string, count: number) {
+  if (!userId) return;
   window.localStorage.setItem(
-    STORAGE_KEY,
+    dailyPassesStorageKey(userId),
     JSON.stringify({ day: todayKey(), count }),
   );
 }
 
 type HomeInviteSectionProps = {
+  /** Supabase auth user id — pass count is scoped so each account has its own daily queue. */
+  userId: string;
   matches: [HomeInviteMatch, HomeInviteMatch];
   userContactSummary: string;
   welcomeName?: string | null;
 };
 
 export function HomeInviteSection({
+  userId,
   matches,
   userContactSummary,
   welcomeName,
@@ -59,9 +63,9 @@ export function HomeInviteSection({
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    setPassCount(readPassCount());
+    setPassCount(readPassCount(userId));
     setHydrated(true);
-  }, []);
+  }, [userId]);
 
   const exhausted = passCount >= 2;
   const activeIndex = passCount >= 1 ? 1 : 0;
@@ -69,13 +73,13 @@ export function HomeInviteSection({
 
   const onPass = useCallback(() => {
     setPassCount((prev) => {
-      const fromStorage = readPassCount();
+      const fromStorage = readPassCount(userId);
       const base = Math.max(prev, fromStorage);
       const next = Math.min(base + 1, 2);
-      writePassCount(next);
+      writePassCount(userId, next);
       return next;
     });
-  }, []);
+  }, [userId]);
 
   const remountKey = useMemo(
     () => `${activeIndex}-${passCount}-${activeMatch.dateIdea.slice(0, 24)}`,
@@ -89,14 +93,14 @@ export function HomeInviteSection({
   if (!hydrated) {
     return (
       <div className="flex w-full flex-col items-center">
-        <div className="mb-8 w-full text-center">
+        <div className="mb-4 w-full text-center md:mb-5">
           <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
             Home
           </p>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 md:text-3xl">
+          <h1 className="mt-2 text-xl font-semibold tracking-tight text-zinc-50 md:mt-3 md:text-3xl">
             {welcomeName ? `Welcome, ${welcomeName}` : "Your invitations"}
           </h1>
-          <p className="mt-2 text-sm text-zinc-500">Loading your queue…</p>
+          <p className="mt-1 text-sm text-zinc-500 md:mt-2">Loading your queue…</p>
         </div>
         <div className="h-[420px] w-full max-w-3xl animate-pulse rounded-3xl border border-zinc-800 bg-zinc-900/50" />
       </div>
@@ -106,14 +110,14 @@ export function HomeInviteSection({
   if (exhausted) {
     return (
       <div className="flex w-full flex-col items-center">
-        <div className="mb-8 text-center">
+        <div className="mb-4 text-center md:mb-5">
           <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
             Home
           </p>
-          <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 md:text-3xl">
+          <h1 className="mt-2 text-xl font-semibold tracking-tight text-zinc-50 md:mt-3 md:text-3xl">
             {welcomeName ? `Welcome, ${welcomeName}` : "Your invitations"}
           </h1>
-          <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
+          <p className="mt-1 text-sm text-zinc-400 md:mt-2">{subtitle}</p>
         </div>
       <div className="relative w-full max-w-3xl">
         <div className="absolute inset-x-6 top-16 h-52 rounded-b-[2rem] bg-zinc-950/60 blur-2xl" />
@@ -142,17 +146,18 @@ export function HomeInviteSection({
 
   return (
     <div className="flex w-full flex-col items-center">
-      <div className="mb-8 text-center">
+      <div className="mb-4 text-center md:mb-5">
         <p className="text-xs font-medium uppercase tracking-[0.22em] text-zinc-500">
           Home
         </p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-50 md:text-3xl">
+        <h1 className="mt-2 text-xl font-semibold tracking-tight text-zinc-50 md:mt-3 md:text-3xl">
           {welcomeName ? `Welcome, ${welcomeName}` : "Your invitations"}
         </h1>
-        <p className="mt-2 text-sm text-zinc-400">{subtitle}</p>
+        <p className="mt-1 text-sm text-zinc-400 md:mt-2">{subtitle}</p>
       </div>
     <InviteLetter
       key={remountKey}
+      userId={userId}
       dateIdea={activeMatch.dateIdea}
       matchReasoning={activeMatch.matchReasoning}
       matchName={activeMatch.matchName}

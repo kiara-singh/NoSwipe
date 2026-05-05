@@ -1,14 +1,16 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { NextResponse } from "next/server";
 import { createClient } from "@/utils/supabase/server";
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 type ChatMessage = { role: "user" | "model"; content: string };
 
 const FINALIZE_INSTRUCTION = `You are analyzing a NoSwipe onboarding chat. Read the full conversation and output ONLY valid JSON (no markdown) with exactly two keys:
 - "vibe": a string of exactly three words summarizing the user's personality (e.g. "curious, grounded, playful").
 - "intent": a short string describing what they want out of dating (one or two sentences max).`;
+
+const FINALIZE_MODEL = "llama-3.3-70b-versatile";
 
 export async function POST(req: Request) {
   try {
@@ -41,23 +43,23 @@ export async function POST(req: Request) {
       );
     }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-2.5-flash",
-      systemInstruction: FINALIZE_INSTRUCTION,
-      generationConfig: {
-        responseMimeType: "application/json",
-      },
-    });
-
     const transcript = messages
       .map((m) => `${m.role === "user" ? "User" : "Agent"}: ${m.content}`)
       .join("\n\n");
 
-    const result = await model.generateContent(
-      `Conversation:\n\n${transcript}\n\nRespond with JSON only, shape: {"vibe": string, "intent": string}`,
-    );
+    const completion = await groq.chat.completions.create({
+      model: FINALIZE_MODEL,
+      messages: [
+        { role: "system", content: FINALIZE_INSTRUCTION },
+        {
+          role: "user",
+          content: `Conversation:\n\n${transcript}\n\nRespond with JSON only, shape: {"vibe": string, "intent": string}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+    });
 
-    const raw = result.response.text();
+    const raw = completion.choices[0]?.message?.content ?? "";
     let intentPayload: { vibe: string; intent: string };
     try {
       intentPayload = JSON.parse(raw) as { vibe: string; intent: string };

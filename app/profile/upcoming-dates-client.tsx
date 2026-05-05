@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatContactLine } from "@/lib/contact-platforms";
+import { upcomingDatesStorageKey } from "@/lib/noswipe-demo-storage";
 
 type UpcomingDate = {
   id: string;
@@ -12,11 +13,16 @@ type UpcomingDate = {
   matchPhotoUrl: string;
 };
 
-export function UpcomingDatesClient() {
+type UpcomingDatesClientProps = {
+  userId: string;
+};
+
+export function UpcomingDatesClient({ userId }: UpcomingDatesClientProps) {
   const [items, setItems] = useState<UpcomingDate[]>([]);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem("noswipe_upcoming_dates");
+    if (!userId) return;
+    const raw = window.localStorage.getItem(upcomingDatesStorageKey(userId));
     if (!raw) return;
     try {
       const parsed = JSON.parse(raw) as UpcomingDate[];
@@ -26,7 +32,7 @@ export function UpcomingDatesClient() {
     } catch {
       // Ignore malformed demo data.
     }
-  }, []);
+  }, [userId]);
 
   if (items.length === 0) {
     return (

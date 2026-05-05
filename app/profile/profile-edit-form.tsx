@@ -78,7 +78,7 @@ export function ProfileEditForm({
           type="text"
           value={fullName}
           onChange={(e) => setFullName(e.target.value)}
-          className="mt-1 w-full rounded-xl border border-slate-900 bg-[#020508] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-sky-700/35 focus:ring-4 focus:ring-sky-500/10"
+          className="mt-1 w-full rounded-xl border border-slate-900 bg-[#020508] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-950/55 focus:ring-4 focus:ring-blue-950/15"
           autoComplete="name"
         />
       </div>
@@ -92,7 +92,7 @@ export function ProfileEditForm({
               onClick={() => setContactPlatform(p)}
               className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
                 contactPlatform === p
-                  ? "border-sky-800 bg-sky-900 text-sky-50 shadow-sm shadow-black/50"
+                  ? "border-blue-950 bg-blue-950 text-slate-100 shadow-sm shadow-black/50 ring-1 ring-blue-900/40"
                   : "border-slate-900 bg-[#050c14] text-slate-500 hover:border-slate-800"
               }`}
             >
@@ -111,7 +111,7 @@ export function ProfileEditForm({
           value={contactName}
           onChange={(e) => setContactName(e.target.value)}
           placeholder="@you or phone"
-          className="mt-1 w-full rounded-xl border border-slate-900 bg-[#020508] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-sky-700/35 focus:ring-4 focus:ring-sky-500/10"
+          className="mt-1 w-full rounded-xl border border-slate-900 bg-[#020508] px-3 py-2 text-sm text-slate-100 outline-none transition placeholder:text-slate-600 focus:border-blue-950/55 focus:ring-4 focus:ring-blue-950/15"
           autoComplete="off"
         />
       </div>
@@ -124,7 +124,7 @@ export function ProfileEditForm({
       <button
         type="submit"
         disabled={saving}
-        className="inline-flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-black/30 transition hover:bg-sky-500 disabled:opacity-60"
+        className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-950/60 bg-blue-950 px-4 py-2.5 text-sm font-semibold text-slate-100 shadow-lg shadow-black/40 transition hover:bg-blue-900 hover:border-blue-900 disabled:opacity-60"
       >
         {saving ? (
           <>

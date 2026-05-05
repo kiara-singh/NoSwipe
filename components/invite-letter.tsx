@@ -5,8 +5,10 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2 } from "lucide-react";
 
 import { formatContactLine } from "@/lib/contact-platforms";
+import { upcomingDatesStorageKey } from "@/lib/noswipe-demo-storage";
 
 type InviteLetterProps = {
+  userId: string;
   dateIdea: string;
   matchReasoning: string;
   matchName: string;
@@ -18,6 +20,7 @@ type InviteLetterProps = {
 };
 
 export function InviteLetter({
+  userId,
   dateIdea,
   matchReasoning,
   matchName,
@@ -34,9 +37,10 @@ export function InviteLetter({
   function onAccept() {
     setIsAccepting(true);
     setTimeout(() => {
+      const key = upcomingDatesStorageKey(userId);
       const existing =
-        typeof window !== "undefined"
-          ? window.localStorage.getItem("noswipe_upcoming_dates")
+        typeof window !== "undefined" && userId
+          ? window.localStorage.getItem(key)
           : null;
       const parsed = existing ? (JSON.parse(existing) as unknown[]) : [];
       const record = {
@@ -47,9 +51,9 @@ export function InviteLetter({
         matchContactPlatform,
         matchPhotoUrl,
       };
-      if (typeof window !== "undefined") {
+      if (typeof window !== "undefined" && userId) {
         window.localStorage.setItem(
-          "noswipe_upcoming_dates",
+          key,
           JSON.stringify([record, ...parsed].slice(0, 8)),
         );
       }
@@ -64,7 +68,9 @@ export function InviteLetter({
 
       <motion.div
         animate={{ scale: isOpen ? 0.995 : 1 }}
-        className="relative overflow-hidden rounded-3xl border border-zinc-700/70 bg-zinc-900 shadow-2xl shadow-black/50"
+        className={`relative rounded-3xl border border-zinc-700/70 bg-zinc-900 shadow-2xl shadow-black/50 ${
+          isOpen ? "overflow-visible" : "overflow-hidden"
+        }`}
       >
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_-20%,rgba(255,255,255,0.12),transparent_55%)]" />
 
@@ -92,20 +98,12 @@ export function InviteLetter({
               className="absolute inset-x-10 bottom-12 h-28 border border-zinc-700 bg-zinc-800/95"
             />
 
-            <div className="relative z-10 mt-20 text-center">
-              <p className="text-xs uppercase tracking-[0.28em] text-zinc-500">
-                NoSwipe Match Dispatch
-              </p>
-              <p className="mt-2 text-sm text-zinc-400">
-                A private invitation has arrived.
-              </p>
-            </div>
-
             <motion.button
+              type="button"
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => setIsOpen(true)}
-              className="absolute left-1/2 top-1/2 z-20 inline-flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 via-amber-500 to-amber-700 text-center text-xs font-semibold uppercase tracking-wide text-zinc-900 shadow-[0_0_0_6px_rgba(133,77,14,0.35)]"
+              className="absolute left-1/2 top-1/2 z-20 inline-flex h-28 w-28 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gradient-to-br from-red-950 via-red-900 to-red-950 text-center text-xs font-semibold uppercase tracking-wide text-red-50 shadow-[0_0_0_6px_rgba(127,29,29,0.45)] ring-1 ring-red-800/60"
             >
               Open Today&apos;s Match
             </motion.button>
@@ -119,33 +117,32 @@ export function InviteLetter({
               animate={{ y: 0, opacity: 1 }}
               exit={{ y: 220, opacity: 0 }}
               transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-              className="relative z-10 m-4 rounded-2xl border border-zinc-300 bg-zinc-50 px-7 py-8 text-zinc-900 shadow-xl md:m-6 md:px-10 md:py-10"
+              className="relative z-10 m-3 rounded-2xl border border-zinc-300 bg-zinc-50 px-4 py-4 text-zinc-900 shadow-xl sm:m-4 sm:px-5 sm:py-5"
             >
-              <p className="text-xs uppercase tracking-[0.22em] text-zinc-500">
-                The Date Architect Proposal
+              <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-zinc-500">
+                Proposal
               </p>
-              <h2 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-950 md:text-3xl">
+              <h2 className="mt-1.5 text-balance text-lg font-semibold leading-snug tracking-tight text-zinc-950 sm:text-xl">
                 {dateIdea}
               </h2>
-              <div className="mt-5 flex items-center gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2">
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-base font-semibold tracking-tight text-zinc-950 sm:text-lg">
+                  {matchName}
+                </p>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={matchPhotoUrl}
-                  alt={`${matchName} profile`}
-                  className="h-10 w-10 rounded-full object-cover ring-1 ring-zinc-200"
+                  alt={`${matchName}`}
+                  className="h-14 w-14 shrink-0 rounded-full object-cover ring-2 ring-zinc-200/80 shadow-sm sm:h-16 sm:w-16"
                 />
-                <div>
-                  <p className="text-sm font-semibold text-zinc-900">{matchName}</p>
-                  <p className="text-xs text-zinc-500">Today&apos;s mutual match</p>
-                </div>
               </div>
-              <p className="mt-5 text-sm leading-relaxed text-zinc-700 md:text-[15px]">
+              <p className="mt-3 text-[13px] leading-snug text-zinc-700 sm:text-sm sm:leading-relaxed">
                 {matchReasoning}
               </p>
 
-              <div className="mt-8 border-t border-zinc-200 pt-6">
+              <div className="mt-4 border-t border-zinc-200 pt-4">
                 {isMatched ? (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-900">
+                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-xs text-emerald-900 sm:text-sm">
                     Matched! {matchName} accepted your invite. Your contact (
                     <span className="font-semibold">{userContactSummary}</span>)
                     has been shared. Here is theirs:{" "}
@@ -155,12 +152,12 @@ export function InviteLetter({
                     .
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-3 sm:flex-row">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
                     <button
                       type="button"
                       onClick={onAccept}
                       disabled={isAccepting}
-                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-70"
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-zinc-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-70"
                     >
                       {isAccepting ? (
                         <>
@@ -175,7 +172,7 @@ export function InviteLetter({
                       type="button"
                       disabled={isAccepting}
                       onClick={() => onPass?.()}
-                      className="inline-flex flex-1 items-center justify-center rounded-xl border border-zinc-300 bg-white px-5 py-3 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-70"
+                      className="inline-flex flex-1 items-center justify-center rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-70"
                     >
                       Pass
                     </button>
