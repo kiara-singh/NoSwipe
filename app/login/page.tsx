@@ -54,7 +54,7 @@ export default function LoginPage() {
       setError(signInError.message);
       return;
     }
-    router.replace("/onboarding");
+    router.replace("/");
     router.refresh();
   }
 

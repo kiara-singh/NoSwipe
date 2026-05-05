@@ -7,3 +7,11 @@ export function dailyPassesStorageKey(userId: string) {
 export function upcomingDatesStorageKey(userId: string) {
   return `noswipe_upcoming_dates:${userId}`;
 }
+
+export function wingmanFriendsStorageKey(userId: string) {
+  return `noswipe_wingman_friends:${userId}`;
+}
+
+export function wingedInviteDismissedStorageKey(userId: string) {
+  return `noswipe_winged_invite_dismissed:${userId}`;
+}

@@ -12,6 +12,16 @@ export default async function OnboardingPage() {
     redirect("/login");
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("onboarding_completed")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profile?.onboarding_completed) {
+    redirect("/");
+  }
+
   return (
     <main className="flex min-h-full flex-1 flex-col bg-[#fafafa] px-4 py-8 md:px-6">
       <div className="mx-auto flex w-full max-w-xl flex-1 flex-col gap-6">
