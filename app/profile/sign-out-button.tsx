@@ -13,7 +13,7 @@ export function SignOutButton() {
     setLoading(true);
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/login");
+    router.push("/");
     router.refresh();
   }
 
@@ -22,7 +22,7 @@ export function SignOutButton() {
       type="button"
       onClick={() => void signOut()}
       disabled={loading}
-      className="inline-flex items-center justify-center gap-2 rounded-full border border-zinc-200 bg-white px-5 py-2.5 text-sm font-medium text-zinc-800 shadow-sm transition hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-60"
+      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-slate-900 bg-[#050c14] px-5 py-2.5 text-sm font-medium text-slate-500 shadow-sm transition hover:border-slate-800 hover:bg-[#070f18] hover:text-slate-400 disabled:opacity-60"
     >
       {loading ? (
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
