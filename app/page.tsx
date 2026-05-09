@@ -11,8 +11,13 @@ import { createClient } from "@/utils/supabase/server";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-/** Groq: llama3-70b-8192 retired; use llama-3.3-70b-versatile for JSON + quality */
+
 const INVITE_JSON_MODEL = "llama-3.3-70b-versatile";
+const INVITE_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours (demo-safe)
+const INVITE_CACHE_VERSION = "v2";
+const COMPATIBILITY_JSON_MODEL = "llama-3.3-70b-versatile";
+const COMPATIBILITY_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
+const COMPATIBILITY_CACHE_VERSION = "v1";
 
 const FALLBACK_MATCH: { date_idea: string; match_reasoning: string } = {
   date_idea: "Sunday Coffee & Book Swap at Blue Bottle",
@@ -20,8 +25,71 @@ const FALLBACK_MATCH: { date_idea: string; match_reasoning: string } = {
     "You and your match both value thoughtful, low-pressure connection and discover people best through shared rituals. A coffee + book swap gives you an easy starting point with enough depth for real chemistry to surface quickly.",
 };
 
-const ALEX_PROFILE_ID = "c7e02bb2-74fc-43e8-b867-2c71c11c9806";
-const JORDAN_PROFILE_ID = "34ba8626-fccc-4641-8ba5-8d13aee5ba6d";
+type InviteCacheEntry = {
+  dateIdea: string;
+  matchReasoning: string;
+  expiresAt: number;
+};
+
+type CompatibilityCacheEntry = {
+  score: number;
+  reason: string;
+  expiresAt: number;
+};
+
+type IntentSummary = { vibe: string; intent: string };
+
+const inviteCache = new Map<string, InviteCacheEntry>();
+const compatibilityCache = new Map<string, CompatibilityCacheEntry>();
+
+function normalizeIntentPayload(
+  payload: unknown,
+  fallback: IntentSummary = {
+    vibe: "intent not available",
+    intent: "intent not available",
+  },
+): IntentSummary {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return fallback;
+  }
+  const candidate = payload as { vibe?: unknown; intent?: unknown };
+  return {
+    vibe: typeof candidate.vibe === "string" ? candidate.vibe : fallback.vibe,
+    intent: typeof candidate.intent === "string" ? candidate.intent : fallback.intent,
+  };
+}
+
+function tokenizeIntentText(input: string) {
+  return Array.from(
+    new Set(
+      input
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, " ")
+        .split(/\s+/)
+        .filter((token) => token.length >= 3),
+    ),
+  );
+}
+
+function deterministicCompatibilityScore(viewer: IntentSummary, candidate: IntentSummary) {
+  const viewerTokens = tokenizeIntentText(`${viewer.vibe} ${viewer.intent}`);
+  const candidateTokens = tokenizeIntentText(`${candidate.vibe} ${candidate.intent}`);
+  if (viewerTokens.length === 0 || candidateTokens.length === 0) {
+    return { score: 50, reason: "Limited intent detail; using neutral compatibility." };
+  }
+  const candidateSet = new Set(candidateTokens);
+  const overlap = viewerTokens.filter((token) => candidateSet.has(token)).length;
+  const denominator = Math.max(viewerTokens.length, candidateTokens.length, 1);
+  const overlapRatio = overlap / denominator;
+  const score = Math.max(20, Math.min(95, Math.round(35 + overlapRatio * 60)));
+  const reason =
+    overlap > 0
+      ? `Shared intent themes (${overlap} overlap keywords) suggest alignment.`
+      : "Different intent keywords suggest moderate compatibility.";
+  return { score, reason };
+}
+
+const MAX_HOME_MATCHES = 3;
 
 export default async function Home() {
   const supabase = await createClient();
@@ -42,21 +110,91 @@ export default async function Home() {
       redirect("/onboarding");
     }
 
-    const { data: seededProfiles } = await supabase
+    const { data: candidateProfiles } = await supabase
       .from("profiles")
       .select("id, full_name, avatar_url, contact_method, contact_name, intent_data")
-      .in("id", [ALEX_PROFILE_ID, JORDAN_PROFILE_ID]);
+      .neq("id", user.id)
+      .eq("onboarding_completed", true)
+      .limit(40);
 
-    const seededById = new Map(
-      (seededProfiles ?? []).map((seededProfile) => [seededProfile.id, seededProfile]),
-    );
+    const userIntent = normalizeIntentPayload(profile?.intent_data);
+    const userId = user.id;
 
-    const userIntent =
-      profile?.intent_data &&
-      typeof profile.intent_data === "object" &&
-      !Array.isArray(profile.intent_data)
-        ? profile.intent_data
-        : null;
+    function inviteCacheKey(candidateId: string, candidateName: string) {
+      return `${INVITE_CACHE_VERSION}:${userId}:${candidateId}:${candidateName.toLowerCase()}:${INVITE_JSON_MODEL}`;
+    }
+
+    function compatibilityCacheKey(candidateId: string, candidateIntent: IntentSummary) {
+      const viewerFingerprint = `${userIntent.vibe}::${userIntent.intent}`.toLowerCase();
+      const candidateFingerprint =
+        `${candidateIntent.vibe}::${candidateIntent.intent}`.toLowerCase();
+      return `${COMPATIBILITY_CACHE_VERSION}:${userId}:${candidateId}:${viewerFingerprint}:${candidateFingerprint}:${COMPATIBILITY_JSON_MODEL}`;
+    }
+
+    async function scoreCandidateCompatibility(candidate: {
+      id: string;
+      name: string;
+      intent: IntentSummary;
+    }): Promise<{ score: number; reason: string }> {
+      const cacheKey = compatibilityCacheKey(candidate.id, candidate.intent);
+      const cached = compatibilityCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return { score: cached.score, reason: cached.reason };
+      }
+
+      const deterministic = deterministicCompatibilityScore(userIntent, candidate.intent);
+
+      try {
+        const systemInstruction = `You are a dating compatibility scorer. Compare two short intent summaries and return ONLY strict JSON with:
+- score: integer from 0 to 100 (higher = better match)
+- reason: one concise sentence explaining the score.
+Score based on shared relationship pace, social energy, values, and date style fit.`;
+        const userPrompt = `Viewer intent:
+${JSON.stringify(userIntent)}
+
+Candidate intent:
+${JSON.stringify(candidate.intent)}
+
+Return strict JSON: {"score": number, "reason": string}`;
+
+        const completion = await groq.chat.completions.create({
+          model: COMPATIBILITY_JSON_MODEL,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userPrompt },
+          ],
+          response_format: { type: "json_object" },
+        });
+
+        const raw = completion.choices[0]?.message?.content ?? "";
+        const parsed = JSON.parse(raw) as { score?: unknown; reason?: unknown };
+        const parsedScore =
+          typeof parsed.score === "number" ? Math.round(parsed.score) : Number.NaN;
+        const finalScore = Number.isFinite(parsedScore)
+          ? Math.max(0, Math.min(100, parsedScore))
+          : deterministic.score;
+        const finalReason =
+          typeof parsed.reason === "string" && parsed.reason.trim().length > 0
+            ? parsed.reason
+            : deterministic.reason;
+
+        compatibilityCache.set(cacheKey, {
+          score: finalScore,
+          reason: finalReason,
+          expiresAt: Date.now() + COMPATIBILITY_CACHE_TTL_MS,
+        });
+
+        return { score: finalScore, reason: finalReason };
+      } catch (error) {
+        console.error("Home compatibility scorer error:", error);
+        compatibilityCache.set(cacheKey, {
+          score: deterministic.score,
+          reason: deterministic.reason,
+          expiresAt: Date.now() + COMPATIBILITY_CACHE_TTL_MS,
+        });
+        return deterministic;
+      }
+    }
 
     async function generateInviteForProfile(candidate: {
       id: string;
@@ -66,6 +204,43 @@ export default async function Home() {
       photoUrl: string;
       intent: { vibe: string; intent: string };
     }): Promise<HomeInviteMatch> {
+      const cacheKey = inviteCacheKey(candidate.id, candidate.name);
+      const cached = inviteCache.get(cacheKey);
+      // #region agent log
+      fetch("http://127.0.0.1:7854/ingest/140fb55f-ac43-45e4-920a-4e5d365e0f48", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "3a565f",
+        },
+        body: JSON.stringify({
+          sessionId: "3a565f",
+          runId: "lindsey-match-debug-1",
+          hypothesisId: "H4",
+          location: "app/page.tsx:generateInviteForProfile:cache-check",
+          message: "Invite generation cache check",
+          data: {
+            candidateId: candidate.id,
+            candidateName: candidate.name,
+            cacheKey,
+            cacheHit: Boolean(cached && cached.expiresAt > Date.now()),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+      // #endregion
+      if (cached && cached.expiresAt > Date.now()) {
+        return {
+          matchedUserId: candidate.id,
+          dateIdea: cached.dateIdea,
+          matchReasoning: cached.matchReasoning,
+          matchName: candidate.name,
+          matchContact: candidate.contact,
+          matchContactPlatform: candidate.contactPlatform,
+          matchPhotoUrl: candidate.photoUrl,
+        };
+      }
+
       let matchData = FALLBACK_MATCH;
       try {
         const systemInstruction = `You are an elite matchmaker for NoSwipe. Return ONLY JSON with keys: date_idea and match_reasoning.
@@ -74,12 +249,7 @@ date_idea must be a short label only: maximum 12 words, target ~6–10 words—l
         const userPrompt = `Create one specific, low-friction date idea based on overlap between these two people.
 
 Your intent (you are the member opening this invite):
-${JSON.stringify(
-          userIntent ?? {
-            vibe: "intent not available",
-            intent: "intent not available",
-          },
-        )}
+${JSON.stringify(userIntent)}
 
 ${candidate.name}'s intent (your suggested match):
 ${JSON.stringify(candidate.intent)}
@@ -110,6 +280,11 @@ date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentenc
             date_idea: parsed.date_idea,
             match_reasoning: parsed.match_reasoning,
           };
+          inviteCache.set(cacheKey, {
+            dateIdea: parsed.date_idea,
+            matchReasoning: parsed.match_reasoning,
+            expiresAt: Date.now() + INVITE_CACHE_TTL_MS,
+          });
         }
       } catch (error) {
         console.error("Home matchmaker error:", error);
@@ -127,7 +302,7 @@ date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentenc
       };
     }
 
-    function toCandidate(profileId: string, fallbackName: string): {
+    function toCandidate(profileId: string): {
       id: string;
       name: string;
       contact: string;
@@ -136,18 +311,17 @@ date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentenc
       intent: { vibe: string; intent: string };
     } {
       const seeded = seededById.get(profileId);
-      const seededIntent =
-        seeded?.intent_data &&
-        typeof seeded.intent_data === "object" &&
-        !Array.isArray(seeded.intent_data)
-          ? (seeded.intent_data as { vibe?: unknown; intent?: unknown })
-          : null;
+      const seededIntent = normalizeIntentPayload(seeded?.intent_data, {
+        vibe: "curious grounded playful",
+        intent:
+          "Looking for a warm, consistent connection built through shared routines and honest conversation.",
+      });
       return {
         id: profileId,
         name:
           typeof seeded?.full_name === "string" && seeded.full_name.trim().length > 0
             ? seeded.full_name
-            : fallbackName,
+            : "Match",
         contact:
           typeof seeded?.contact_name === "string" && seeded.contact_name.trim().length > 0
             ? seeded.contact_name
@@ -162,22 +336,100 @@ date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentenc
             ? seeded.avatar_url
             : "https://i.pravatar.cc/240?img=22",
         intent: {
-          vibe:
-            typeof seededIntent?.vibe === "string"
-              ? seededIntent.vibe
-              : "curious grounded playful",
-          intent:
-            typeof seededIntent?.intent === "string"
-              ? seededIntent.intent
-              : "Looking for a warm, consistent connection built through shared routines and honest conversation.",
+          vibe: seededIntent.vibe,
+          intent: seededIntent.intent,
         },
       };
     }
+    const namedCandidateProfiles = (candidateProfiles ?? []).filter(
+      (candidate) =>
+        typeof candidate.full_name === "string" && candidate.full_name.trim().length > 0,
+    );
+    const seededById = new Map(
+      namedCandidateProfiles.map((profileRow) => [profileRow.id, profileRow]),
+    );
+    const orderedCandidateIds = namedCandidateProfiles
+      .map((candidate) => candidate.id)
+      .filter((profileId) => profileId !== user.id)
+      .slice(0, MAX_HOME_MATCHES);
+    // #region agent log
+    fetch("http://127.0.0.1:7854/ingest/140fb55f-ac43-45e4-920a-4e5d365e0f48", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "3a565f",
+      },
+      body: JSON.stringify({
+        sessionId: "3a565f",
+        runId: "lindsey-match-debug-1",
+        hypothesisId: "H3",
+        location: "app/page.tsx:orderedCandidateIds",
+        message: "Ordered candidate IDs for invite queue",
+        data: {
+          orderedCandidateIds,
+          dynamicIdsCount: orderedCandidateIds.length,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
-    const [inviteA, inviteB] = await Promise.all([
-      generateInviteForProfile(toCandidate(ALEX_PROFILE_ID, "Alex")),
-      generateInviteForProfile(toCandidate(JORDAN_PROFILE_ID, "Jordan")),
-    ]);
+    const rankedCandidates = await Promise.all(
+      orderedCandidateIds.map(async (profileId, index) => {
+        const candidate = toCandidate(profileId);
+        const compatibility = await scoreCandidateCompatibility(candidate);
+        return {
+          profileId,
+          index,
+          candidate,
+          compatibility,
+        };
+      }),
+    );
+
+    rankedCandidates.sort((a, b) => {
+      if (b.compatibility.score !== a.compatibility.score) {
+        return b.compatibility.score - a.compatibility.score;
+      }
+      return a.index - b.index;
+    });
+
+    const rankedCandidateIds = rankedCandidates.map((entry) => entry.profileId);
+
+    const matches = await Promise.all(
+      rankedCandidateIds.map((profileId) => generateInviteForProfile(toCandidate(profileId))),
+    );
+    // #region agent log
+    fetch("http://127.0.0.1:7854/ingest/140fb55f-ac43-45e4-920a-4e5d365e0f48", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "3a565f",
+      },
+      body: JSON.stringify({
+        sessionId: "3a565f",
+        runId: "lindsey-match-debug-1",
+        hypothesisId: "H5",
+        location: "app/page.tsx:matches-built",
+        message: "Final built matches",
+        data: {
+          orderedCandidateIds,
+          rankedCandidateIds,
+          topCompatibilityScores: rankedCandidates.slice(0, 4).map((entry) => ({
+            profileId: entry.profileId,
+            score: entry.compatibility.score,
+            reason: entry.compatibility.reason,
+          })),
+          matchesPreview: matches.slice(0, 4).map((m) => ({
+            matchedUserId: m.matchedUserId,
+            matchName: m.matchName,
+            dateIdea: m.dateIdea,
+          })),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
 
     const { data: sharedMatch } = await supabase
       .from("shared_matches")
@@ -283,8 +535,6 @@ date_idea: phone-lock-screen short (≤12 words). match_reasoning: 2–4 sentenc
           : typeof profile?.contact_method === "string"
             ? profile.contact_method
             : "";
-
-    const matches: [HomeInviteMatch, HomeInviteMatch] = [inviteA, inviteB];
 
     return (
       <div className="min-h-full flex-1 bg-zinc-950 text-zinc-100">
