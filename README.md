@@ -1,4 +1,4 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+NoSwipe is a NextJs dating app intended to make matches using AI. You are also able to recomend people to your friends as a "wingman" since who knows you better than those closest to you! 
 
 ## Getting Started
 
