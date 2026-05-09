@@ -17,9 +17,9 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const { full_name, contact_method, contact_name } = body as {
       full_name?: string | null;
-      /** Platform label (e.g. Instagram, Phone). */
+      
       contact_method?: string | null;
-      /** Handle, @username, or number. */
+     
       contact_name?: string | null;
     };
 

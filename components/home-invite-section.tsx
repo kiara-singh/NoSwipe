@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Moon } from "lucide-react";
 import { InviteLetter } from "@/components/invite-letter";
 import {
   dailyPassesStorageKey,
+  seenMatchesStorageKey,
   wingedInviteDismissedStorageKey,
 } from "@/lib/noswipe-demo-storage";
 
@@ -38,7 +39,14 @@ function readPassCount(userId: string): number {
     if (!raw) return 0;
     const parsed = JSON.parse(raw) as { day?: string; count?: number };
     if (parsed.day !== todayKey()) return 0;
-    return typeof parsed.count === "number" ? parsed.count : 0;
+    if (typeof parsed.count !== "number" || Number.isNaN(parsed.count)) return 0;
+    const normalized = Math.min(2, Math.max(0, Math.floor(parsed.count)));
+    console.log("[HomeInviteSection] readPassCount", {
+      userId,
+      raw,
+      normalized,
+    });
+    return normalized;
   } catch {
     return 0;
   }
@@ -46,16 +54,23 @@ function readPassCount(userId: string): number {
 
 function writePassCount(userId: string, count: number) {
   if (!userId) return;
+  const normalized = Math.min(2, Math.max(0, Math.floor(count)));
+  console.log("[HomeInviteSection] writePassCount", {
+    userId,
+    incoming: count,
+    normalized,
+    day: todayKey(),
+  });
   window.localStorage.setItem(
     dailyPassesStorageKey(userId),
-    JSON.stringify({ day: todayKey(), count }),
+    JSON.stringify({ day: todayKey(), count: normalized }),
   );
 }
 
 type HomeInviteSectionProps = {
   /** Supabase auth user id — pass count is scoped so each account has its own daily queue. */
   userId: string;
-  matches: [HomeInviteMatch, HomeInviteMatch];
+  matches: HomeInviteMatch[];
   wingedMatch?: HomeInviteMatch | null;
   wingedMatchToken?: string | null;
   userContactSummary: string;
@@ -72,7 +87,49 @@ export function HomeInviteSection({
   senderHandle,
   welcomeName,
 }: HomeInviteSectionProps) {
+  const passLockRef = useRef(false);
   const [wingedDismissed, setWingedDismissed] = useState(false);
+  const [seenMatchIds, setSeenMatchIds] = useState<string[]>([]);
+
+  function readSeenMatchIds(currentUserId: string): string[] {
+    if (typeof window === "undefined" || !currentUserId) return [];
+    try {
+      const raw = window.localStorage.getItem(seenMatchesStorageKey(currentUserId));
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((id): id is string => typeof id === "string");
+    } catch {
+      return [];
+    }
+  }
+
+  function writeSeenMatchIds(currentUserId: string, ids: string[]) {
+    if (typeof window === "undefined" || !currentUserId) return;
+    window.localStorage.setItem(
+      seenMatchesStorageKey(currentUserId),
+      JSON.stringify(Array.from(new Set(ids))),
+    );
+  }
+
+  function persistSeenMatchId(currentUserId: string, matchUserId: string) {
+    const existing = readSeenMatchIds(currentUserId);
+    if (existing.includes(matchUserId)) return;
+    writeSeenMatchIds(currentUserId, [...existing, matchUserId]);
+  }
+
+  function markSeenMatchId(matchUserId: string) {
+    console.log("[HomeInviteSection] markSeenMatchId", {
+      userId,
+      matchUserId,
+    });
+    setSeenMatchIds((prev) => {
+      if (prev.includes(matchUserId)) return prev;
+      const next = [...prev, matchUserId];
+      writeSeenMatchIds(userId, next);
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -88,9 +145,41 @@ export function HomeInviteSection({
   }, [userId, wingedMatchToken]);
 
   const showingWinged = Boolean(wingedMatch) && !wingedDismissed;
+  const unseenMatches = useMemo(
+    () => matches.filter((match) => !seenMatchIds.includes(match.matchedUserId)),
+    [matches, seenMatchIds],
+  );
+  const [passCount, setPassCount] = useState(0);
+  const [hydrated, setHydrated] = useState(false);
+  const exhausted = passCount >= 2 || unseenMatches.length === 0;
+  const activeIndex = passCount >= 1 ? 1 : 0;
+  const activeMatch =
+    (showingWinged ? wingedMatch : unseenMatches[activeIndex]) ??
+    unseenMatches[0] ??
+    matches[activeIndex] ??
+    matches[0];
+
+  function markActiveMatchSeen() {
+    if (!activeMatch) return;
+    markSeenMatchId(activeMatch.matchedUserId);
+  }
 
   function onPass() {
+    if (passLockRef.current) return;
+    passLockRef.current = true;
+    window.setTimeout(() => {
+      passLockRef.current = false;
+    }, 400);
+
+    if (!activeMatch) return;
+    console.log("[HomeInviteSection] onPass", {
+      userId,
+      activeMatchId: activeMatch.matchedUserId,
+      showingWinged,
+      passCountBefore: passCount,
+    });
     if (showingWinged) {
+      markSeenMatchId(activeMatch.matchedUserId);
       if (typeof window !== "undefined" && userId && wingedMatchToken) {
         window.localStorage.setItem(
           wingedInviteDismissedStorageKey(userId),
@@ -100,33 +189,76 @@ export function HomeInviteSection({
       setWingedDismissed(true);
       return;
     }
-    setPassCount((prev) => {
-      const fromStorage = readPassCount(userId);
-      const base = Math.max(prev, fromStorage);
-      const next = Math.min(base + 1, 2);
-      writePassCount(userId, next);
-      return next;
-    });
+
+    markActiveMatchSeen();
+
+    // Keep side effects out of React state updaters (strict mode may run them twice).
+    const fromStorage = readPassCount(userId);
+    const next = Math.min(fromStorage + 1, 2);
+    writePassCount(userId, next);
+    setPassCount(next);
   }
 
-  const [passCount, setPassCount] = useState(0);
-  const [hydrated, setHydrated] = useState(false);
+  function onAcceptSuccess() {
+    if (!activeMatch) return;
+    console.log("[HomeInviteSection] onAcceptSuccess", {
+      userId,
+      activeMatchId: activeMatch.matchedUserId,
+      showingWinged,
+    });
+
+    if (showingWinged) {
+      markSeenMatchId(activeMatch.matchedUserId);
+      if (typeof window !== "undefined" && userId && wingedMatchToken) {
+        window.localStorage.setItem(
+          wingedInviteDismissedStorageKey(userId),
+          wingedMatchToken,
+        );
+      }
+      setWingedDismissed(true);
+      return;
+    }
+
+    // Keep the accepted-card success state visible and only persist for next visit.
+    persistSeenMatchId(userId, activeMatch.matchedUserId);
+  }
+
+  function onShareSuccess() {
+    if (!activeMatch) return;
+    console.log("[HomeInviteSection] onShareSuccess", {
+      userId,
+      activeMatchId: activeMatch.matchedUserId,
+      showingWinged,
+    });
+
+    if (showingWinged) {
+      markSeenMatchId(activeMatch.matchedUserId);
+      if (typeof window !== "undefined" && userId && wingedMatchToken) {
+        window.localStorage.setItem(
+          wingedInviteDismissedStorageKey(userId),
+          wingedMatchToken,
+        );
+      }
+      setWingedDismissed(true);
+      return;
+    }
+
+    markActiveMatchSeen();
+  }
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setPassCount(readPassCount(userId));
+      setSeenMatchIds(readSeenMatchIds(userId));
       setHydrated(true);
     }, 0);
     return () => window.clearTimeout(timeoutId);
   }, [userId]);
 
-  const exhausted = passCount >= 2;
-  const activeIndex = passCount >= 1 ? 1 : 0;
-  const activeMatch = (showingWinged ? wingedMatch : matches[activeIndex]) ?? matches[0];
-
   const remountKey = useMemo(
-    () => `${activeIndex}-${passCount}-${activeMatch.dateIdea.slice(0, 24)}`,
-    [activeIndex, passCount, activeMatch.dateIdea],
+    () =>
+      `${activeIndex}-${passCount}-${activeMatch?.matchedUserId ?? "none"}-${activeMatch?.dateIdea.slice(0, 24) ?? "none"}`,
+    [activeIndex, passCount, activeMatch?.matchedUserId, activeMatch?.dateIdea],
   );
 
   const subtitle = showingWinged
@@ -200,23 +332,27 @@ export function HomeInviteSection({
         </h1>
         <p className="mt-1 text-sm text-zinc-400 md:mt-2">{subtitle}</p>
       </div>
-    <InviteLetter
-      key={remountKey}
-      userId={userId}
-      senderHandle={senderHandle}
-      wingedByHandle={activeMatch.senderHandle}
-      matchedUserId={activeMatch.matchedUserId}
-      dateIdea={activeMatch.dateIdea}
-      matchReasoning={activeMatch.matchReasoning}
-      matchName={activeMatch.matchName}
-      matchContact={activeMatch.matchContact}
-      matchContactPlatform={activeMatch.matchContactPlatform}
-      matchPhotoUrl={activeMatch.matchPhotoUrl}
-      isWingedMatch={activeMatch.isWingedMatch}
-      pitchMessage={activeMatch.pitchMessage}
-      userContactSummary={userContactSummary}
-      onPass={onPass}
-    />
+    {activeMatch ? (
+      <InviteLetter
+        key={remountKey}
+        userId={userId}
+        senderHandle={senderHandle}
+        wingedByHandle={activeMatch.senderHandle}
+        matchedUserId={activeMatch.matchedUserId}
+        dateIdea={activeMatch.dateIdea}
+        matchReasoning={activeMatch.matchReasoning}
+        matchName={activeMatch.matchName}
+        matchContact={activeMatch.matchContact}
+        matchContactPlatform={activeMatch.matchContactPlatform}
+        matchPhotoUrl={activeMatch.matchPhotoUrl}
+        isWingedMatch={activeMatch.isWingedMatch}
+        pitchMessage={activeMatch.pitchMessage}
+        userContactSummary={userContactSummary}
+        onPass={onPass}
+        onAcceptSuccess={onAcceptSuccess}
+        onShareSuccess={onShareSuccess}
+      />
+    ) : null}
     </div>
   );
 }

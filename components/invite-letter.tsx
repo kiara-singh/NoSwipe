@@ -22,6 +22,8 @@ type InviteLetterProps = {
   pitchMessage?: string;
   userContactSummary: string;
   onPass?: () => void;
+  onAcceptSuccess?: () => void;
+  onShareSuccess?: () => void;
 };
 
 type FriendProfile = {
@@ -59,6 +61,8 @@ export function InviteLetter({
   pitchMessage,
   userContactSummary,
   onPass,
+  onAcceptSuccess,
+  onShareSuccess,
 }: InviteLetterProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isAccepting, setIsAccepting] = useState(false);
@@ -98,6 +102,7 @@ export function InviteLetter({
       }
       setIsAccepting(false);
       setIsMatched(true);
+      onAcceptSuccess?.();
     }, 2500);
   }
 
@@ -163,6 +168,7 @@ export function InviteLetter({
       setIsSharing(false);
       setIsOpen(false);
       setShareSuccess(true);
+      onShareSuccess?.();
     } catch {
       setShareError("Could not route this match right now.");
     } finally {

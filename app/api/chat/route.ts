@@ -9,7 +9,7 @@ const ONBOARDING_CLOSING_MESSAGE =
 const CONTACT_METHOD_PROMPT =
   "Love that. Choose your platform from the options above the text box, then type the handle or number matches should use. When you send, I'll ask three quick vibe questions—one at a time.";
 
-// The "System Prompt" that gives your NoSwipe Agent its personality and goal
+
 const SYSTEM_INSTRUCTION = `
 You are the NoSwipe Match Agent. Your goal is to interview the user to extract their dating "intent" and "vibe."
 The first turn is the user's name. The second turn is collected in the UI as platform + handle (you will see it as text in the transcript).
@@ -19,7 +19,7 @@ Do not ask for boring stats like height or job. Ask clever, revealing questions.
 Ask only ONE question at a time. Keep your tone modern, slightly witty, and highly empathetic.
 `;
 
-/** Groq: llama3-8b-8192 retired; see https://console.groq.com/docs/deprecations */
+
 const CHAT_MODEL = 'llama-3.1-8b-instant';
 
 function toGroqRole(role: string): 'assistant' | 'user' {

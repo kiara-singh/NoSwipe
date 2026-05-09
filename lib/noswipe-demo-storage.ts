@@ -15,3 +15,7 @@ export function wingmanFriendsStorageKey(userId: string) {
 export function wingedInviteDismissedStorageKey(userId: string) {
   return `noswipe_winged_invite_dismissed:${userId}`;
 }
+
+export function seenMatchesStorageKey(userId: string) {
+  return `noswipe_seen_matches:${userId}`;
+}
